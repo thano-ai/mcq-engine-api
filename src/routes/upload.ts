@@ -1,5 +1,6 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import fs from "fs/promises";
+import multer from "multer";
 import { upload } from "../middleware/upload";
 import { extractTextFromFile, extractTextFromRawInput } from "../services/textExtractor";
 import { parseMcqs } from "../services/geminiService";
@@ -8,7 +9,19 @@ import { sampleQuestions } from "../services/quizSampler";
 
 const router = Router();
 
-router.post("/", upload.single("file"), async (req: Request, res: Response) => {
+router.post("/", (req: Request, res: Response, next: NextFunction) => {
+  upload.single("file")(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      res.status(400).json({ error: `Upload error: ${err.message}` });
+      return;
+    }
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    next();
+  });
+}, async (req: Request, res: Response) => {
   try {
     const mode = (req.body.mode as string) === "random" ? "random" : "all";
     const sampleSize = req.body.sampleSize
@@ -43,8 +56,8 @@ router.post("/", upload.single("file"), async (req: Request, res: Response) => {
       return;
     }
 
-    const session = createSession(parsed, mode, sampleSize);
     const quizQuestions = sampleQuestions(parsed, mode, sampleSize);
+    const session = createSession(quizQuestions, mode, sampleSize);
 
     res.json({
       sessionId: session.id,

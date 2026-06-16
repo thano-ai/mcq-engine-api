@@ -24,11 +24,17 @@ Rules:
 
 Do not include markdown, code fences, or any text outside the JSON array.`;
 
-function getApiKey(): string {
+function getApiKey(): string | null {
   const key = process.env.GEMINI_API_KEY;
-  if (!key || key === "your_gemini_api_key_here") {
+  if (!key || key === "your_gemini_api_key_here") return null;
+  return key;
+}
+
+function requireApiKey(): string {
+  const key = getApiKey();
+  if (!key) {
     throw new Error(
-      "GEMINI_API_KEY is not configured. Set it in back/.env (get a free key at https://aistudio.google.com/apikey)"
+      "This file needs AI to detect answers. Add GEMINI_API_KEY to back/.env (free at https://aistudio.google.com/apikey), or use a file with an answer key."
     );
   }
   return key;
@@ -67,11 +73,12 @@ function extractJsonFromResponse(text: string): McqQuestion[] {
 }
 
 export async function normalizeWithGemini(rawText: string): Promise<McqQuestion[]> {
-  const apiKey = getApiKey();
+  const apiKey = requireApiKey();
 
   const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(90_000),
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [
@@ -117,9 +124,20 @@ export async function parseMcqs(rawText: string): Promise<{
   method: "regex" | "gemini" | "regex+gemini";
 }> {
   const regexQuestions = parseWithRegex(rawText);
+  const answeredRegex = regexQuestions.filter((q) => q.correct_answer);
+  const needsAi = regexQuestions.length === 0 || needsAiNormalization(regexQuestions, rawText);
 
-  if (regexQuestions.length > 0 && !needsAiNormalization(regexQuestions, rawText)) {
-    return { questions: regexQuestions, method: "regex" };
+  if (!needsAi && answeredRegex.length > 0) {
+    return { questions: answeredRegex, method: "regex" };
+  }
+
+  if (!getApiKey()) {
+    if (answeredRegex.length > 0) {
+      return { questions: answeredRegex, method: "regex" };
+    }
+    throw new Error(
+      "Could not parse MCQs from this file. Add GEMINI_API_KEY to back/.env for AI parsing (free at https://aistudio.google.com/apikey), or paste text with numbered questions and Answer: lines."
+    );
   }
 
   try {
@@ -131,11 +149,15 @@ export async function parseMcqs(rawText: string): Promise<{
       };
     }
   } catch (error) {
-    if (regexQuestions.length > 0) {
+    if (answeredRegex.length > 0) {
       console.warn("Gemini normalization failed, falling back to regex results:", error);
-      return { questions: regexQuestions, method: "regex" };
+      return { questions: answeredRegex, method: "regex" };
     }
     throw error;
+  }
+
+  if (answeredRegex.length > 0) {
+    return { questions: answeredRegex, method: "regex" };
   }
 
   return { questions: regexQuestions, method: "regex" };

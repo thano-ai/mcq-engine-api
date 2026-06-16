@@ -9,15 +9,24 @@ const QUESTION_PATTERN =
   /(?:^|\n)\s*(?:Q(?:uestion)?\.?\s*)?(\d+)[.)]\s*(.+?)(?=(?:\n\s*(?:Q(?:uestion)?\.?\s*)?\d+[.)])|$)/gis;
 
 const OPTION_PATTERN =
-  /(?:^|\n)\s*([A-E])[.)]\s*(.+?)(?=(?:\n\s*[A-E][.)])|$)/gis;
+  /(?:^|\n)\s*([a-eA-E])[.)]\s*(.+?)(?=(?:\n\s*[a-eA-E][.)]|\s+[a-eA-E][.)]|\n\s*correct\s+answer|\n\s*answer\s*:|\n\s*correct\s*:|$))/gis;
+
+const EXPLICIT_ANSWER_PATTERNS = [
+  /(?:^|\n)\s*correct\s+answer\s*:\s*([a-eA-E])\s*$/im,
+  /(?:^|\n)\s*answer\s*:\s*([a-eA-E])\s*$/im,
+  /(?:^|\n)\s*correct\s*:\s*([a-eA-E])\s*$/im,
+];
 
 const INLINE_ANSWER_PATTERNS = [
-  /(?:answer|correct)\s*[:\-]\s*([A-E])/i,
-  /\(([A-E])\)\s*(?:\*|✓|correct)/i,
-  /\*([A-E])\)/,
+  /\(([a-eA-E])\)\s*(?:\*|✓)/i,
+  /\*([a-eA-E])[.)]/i,
 ];
 
 const ANSWER_KEY_ENTRY = /(\d+)\s*[-–:.)]\s*([A-E])/gi;
+
+function normalizeText(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
 
 function normalizeOptionLetter(raw: string): string {
   return raw.trim().toUpperCase().charAt(0);
@@ -50,13 +59,28 @@ function splitAnswerKey(text: string): { body: string; answerKey: Map<number, st
   return { body, answerKey };
 }
 
+function stripAnswerLines(text: string): string {
+  return text
+    .replace(/(?:^|\n)\s*correct\s+answer\s*:\s*[a-eA-E]\s*/gi, "\n")
+    .replace(/(?:^|\n)\s*answer\s*:\s*[a-eA-E]\s*/gi, "\n")
+    .replace(/(?:^|\n)\s*correct\s*:\s*[a-eA-E]\s*/gi, "\n");
+}
+
+function extractExplicitAnswer(block: string): string | null {
+  for (const pattern of EXPLICIT_ANSWER_PATTERNS) {
+    const match = block.match(pattern);
+    if (match) return normalizeOptionLetter(match[1]);
+  }
+  return null;
+}
+
 function detectInlineAnswer(block: string): string | null {
   for (const pattern of INLINE_ANSWER_PATTERNS) {
     const match = block.match(pattern);
     if (match) return normalizeOptionLetter(match[1]);
   }
 
-  const markedOption = block.match(/\*+\s*([A-E])[.)]/i);
+  const markedOption = block.match(/\*+\s*([a-eA-E])[.)]/i);
   if (markedOption) return normalizeOptionLetter(markedOption[1]);
 
   return null;
@@ -71,29 +95,30 @@ function parseQuestionBlock(
   if (lines.length === 0) return null;
 
   const questionLine = lines[0].replace(/^\d+[.)]\s*/, "").trim();
+  const explicitAnswer = extractExplicitAnswer(block);
   const options: string[] = [];
-  let inlineAnswer: string | null = null;
+  let markedAnswer: string | null = null;
 
-  const optionText = lines.slice(1).join("\n");
+  const optionText = stripAnswerLines(lines.slice(1).join("\n"));
   let optMatch: RegExpExecArray | null;
   const optPattern = new RegExp(OPTION_PATTERN.source, "gis");
   while ((optMatch = optPattern.exec(optionText)) !== null) {
     const letter = normalizeOptionLetter(optMatch[1]);
     const text = optMatch[2].trim().replace(/[*✓]+$/, "").trim();
     const isMarked =
-      optMatch[0].includes("*") ||
-      optMatch[0].toLowerCase().includes("correct") ||
-      /bold|underline/i.test(optMatch[0]);
+      optMatch[0].includes("*") || /bold|underline/i.test(optMatch[0]);
     options.push(`${letter}) ${text}`);
-    if (isMarked) inlineAnswer = letter;
+    if (isMarked) markedAnswer = letter;
   }
 
   if (options.length < 2) return null;
 
   const correctAnswer =
-    answerKey.get(id) ?? inlineAnswer ?? detectInlineAnswer(block) ?? "";
-
-  if (!correctAnswer) return null;
+    answerKey.get(id) ??
+    explicitAnswer ??
+    detectInlineAnswer(block) ??
+    markedAnswer ??
+    "";
 
   return {
     id,
@@ -104,7 +129,8 @@ function parseQuestionBlock(
 }
 
 export function parseWithRegex(rawText: string): McqQuestion[] {
-  const { body, answerKey } = splitAnswerKey(rawText);
+  const text = normalizeText(rawText);
+  const { body, answerKey } = splitAnswerKey(text);
   const questions: McqQuestion[] = [];
 
   let match: RegExpExecArray | null;
