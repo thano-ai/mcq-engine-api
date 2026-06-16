@@ -9,7 +9,7 @@ const QUESTION_PATTERN =
   /(?:^|\n)\s*(?:Q(?:uestion)?\.?\s*)?(\d+)[.)]\s*(.+?)(?=(?:\n\s*(?:Q(?:uestion)?\.?\s*)?\d+[.)])|$)/gis;
 
 const OPTION_PATTERN =
-  /(?:^|\n)\s*([a-eA-E])[.)]\s*(.+?)(?=(?:\n\s*[a-eA-E][.)]|\s+[a-eA-E][.)]|\n\s*correct\s+answer|\n\s*answer\s*:|\n\s*correct\s*:|$))/gis;
+  /(?:^|\n)\s*\*?\s*([a-eA-E])[.)]\s*(.+?)(?=(?:\n\s*\*?\s*[a-eA-E][.)]|\s+\*?\s*[a-eA-E][.)]|\n\s*correct\s+answer|\n\s*answer\s*:|\n\s*correct\s*:|$))/gis;
 
 const EXPLICIT_ANSWER_PATTERNS = [
   /(?:^|\n)\s*correct\s+answer\s*:\s*([a-eA-E])\s*$/im,
@@ -104,9 +104,8 @@ function parseQuestionBlock(
   const optPattern = new RegExp(OPTION_PATTERN.source, "gis");
   while ((optMatch = optPattern.exec(optionText)) !== null) {
     const letter = normalizeOptionLetter(optMatch[1]);
-    const text = optMatch[2].trim().replace(/[*✓]+$/, "").trim();
-    const isMarked =
-      optMatch[0].includes("*") || /bold|underline/i.test(optMatch[0]);
+    const text = optMatch[2].trim().replace(/^\*+/, "").replace(/[*✓]+$/, "").trim();
+    const isMarked = /^\s*\*/.test(optMatch[0]) || optMatch[0].includes("*");
     options.push(`${letter}) ${text}`);
     if (isMarked) markedAnswer = letter;
   }
