@@ -1,0 +1,136 @@
+import { McqQuestion } from "../types/mcq";
+
+const ANSWER_KEY_PATTERNS = [
+  /(?:^|\n)\s*(?:answer\s*key|answers?|key)\s*[:\-]?\s*\n/i,
+  /(?:^|\n)\s*(?:correct\s*answers?)\s*[:\-]?\s*\n/i,
+];
+
+const QUESTION_PATTERN =
+  /(?:^|\n)\s*(?:Q(?:uestion)?\.?\s*)?(\d+)[.)]\s*(.+?)(?=(?:\n\s*(?:Q(?:uestion)?\.?\s*)?\d+[.)])|$)/gis;
+
+const OPTION_PATTERN =
+  /(?:^|\n)\s*([A-E])[.)]\s*(.+?)(?=(?:\n\s*[A-E][.)])|$)/gis;
+
+const INLINE_ANSWER_PATTERNS = [
+  /(?:answer|correct)\s*[:\-]\s*([A-E])/i,
+  /\(([A-E])\)\s*(?:\*|✓|correct)/i,
+  /\*([A-E])\)/,
+];
+
+const ANSWER_KEY_ENTRY = /(\d+)\s*[-–:.)]\s*([A-E])/gi;
+
+function normalizeOptionLetter(raw: string): string {
+  return raw.trim().toUpperCase().charAt(0);
+}
+
+function splitAnswerKey(text: string): { body: string; answerKey: Map<number, string> } {
+  let splitIndex = -1;
+
+  for (const pattern of ANSWER_KEY_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match && (splitIndex === -1 || match.index < splitIndex)) {
+      splitIndex = match.index;
+    }
+  }
+
+  if (splitIndex === -1) {
+    return { body: text, answerKey: new Map() };
+  }
+
+  const body = text.slice(0, splitIndex).trim();
+  const keySection = text.slice(splitIndex);
+  const answerKey = new Map<number, string>();
+
+  let match: RegExpExecArray | null;
+  const entryPattern = new RegExp(ANSWER_KEY_ENTRY.source, "gi");
+  while ((match = entryPattern.exec(keySection)) !== null) {
+    answerKey.set(parseInt(match[1], 10), normalizeOptionLetter(match[2]));
+  }
+
+  return { body, answerKey };
+}
+
+function detectInlineAnswer(block: string): string | null {
+  for (const pattern of INLINE_ANSWER_PATTERNS) {
+    const match = block.match(pattern);
+    if (match) return normalizeOptionLetter(match[1]);
+  }
+
+  const markedOption = block.match(/\*+\s*([A-E])[.)]/i);
+  if (markedOption) return normalizeOptionLetter(markedOption[1]);
+
+  return null;
+}
+
+function parseQuestionBlock(
+  id: number,
+  block: string,
+  answerKey: Map<number, string>
+): McqQuestion | null {
+  const lines = block.trim().split("\n");
+  if (lines.length === 0) return null;
+
+  const questionLine = lines[0].replace(/^\d+[.)]\s*/, "").trim();
+  const options: string[] = [];
+  let inlineAnswer: string | null = null;
+
+  const optionText = lines.slice(1).join("\n");
+  let optMatch: RegExpExecArray | null;
+  const optPattern = new RegExp(OPTION_PATTERN.source, "gis");
+  while ((optMatch = optPattern.exec(optionText)) !== null) {
+    const letter = normalizeOptionLetter(optMatch[1]);
+    const text = optMatch[2].trim().replace(/[*✓]+$/, "").trim();
+    const isMarked =
+      optMatch[0].includes("*") ||
+      optMatch[0].toLowerCase().includes("correct") ||
+      /bold|underline/i.test(optMatch[0]);
+    options.push(`${letter}) ${text}`);
+    if (isMarked) inlineAnswer = letter;
+  }
+
+  if (options.length < 2) return null;
+
+  const correctAnswer =
+    answerKey.get(id) ?? inlineAnswer ?? detectInlineAnswer(block) ?? "";
+
+  if (!correctAnswer) return null;
+
+  return {
+    id,
+    question: questionLine,
+    options,
+    correct_answer: correctAnswer,
+  };
+}
+
+export function parseWithRegex(rawText: string): McqQuestion[] {
+  const { body, answerKey } = splitAnswerKey(rawText);
+  const questions: McqQuestion[] = [];
+
+  let match: RegExpExecArray | null;
+  const qPattern = new RegExp(QUESTION_PATTERN.source, "gis");
+  while ((match = qPattern.exec(body)) !== null) {
+    const id = parseInt(match[1], 10);
+    const block = match[2];
+    const parsed = parseQuestionBlock(id, block, answerKey);
+    if (parsed) questions.push(parsed);
+  }
+
+  return questions;
+}
+
+export function needsAiNormalization(questions: McqQuestion[], rawText: string): boolean {
+  if (questions.length === 0) return true;
+
+  const unanswered = questions.filter((q) => !q.correct_answer);
+  if (unanswered.length > 0) return true;
+
+  const hasFormattingHints =
+    /\*+\s*[A-E][.)]/i.test(rawText) ||
+    /__(.+?)__/i.test(rawText) ||
+    /bold|underline|asterisk/i.test(rawText);
+
+  if (hasFormattingHints && unanswered.length > 0) return true;
+
+  return false;
+}
