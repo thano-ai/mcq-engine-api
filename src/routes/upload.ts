@@ -58,10 +58,6 @@ router.post("/", (req: Request, res: Response, next: NextFunction) => {
   });
 }, async (req: Request, res: Response) => {
   try {
-    const mode = (req.body.mode as string) === "random" ? "random" : "all";
-    const sampleSize = req.body.sampleSize
-      ? parseInt(req.body.sampleSize as string, 10)
-      : undefined;
     const pastedText = req.body.text as string | undefined;
     const inputMode = req.body.inputMode === "generate" ? "generate" : "extract";
     const generateCount = Math.min(
@@ -71,6 +67,18 @@ router.post("/", (req: Request, res: Response, next: NextFunction) => {
     const includeMcq = req.body.includeMcq !== "false";
     const includeOpen = req.body.includeOpen !== "false";
     const openTypes = parseOpenTypes(req.body.openTypes as string | undefined);
+    const mode =
+      inputMode === "generate"
+        ? "all"
+        : (req.body.mode as string) === "random"
+          ? "random"
+          : "all";
+    const sampleSize =
+      inputMode === "generate"
+        ? undefined
+        : req.body.sampleSize
+          ? parseInt(req.body.sampleSize as string, 10)
+          : undefined;
 
     let rawText: string;
 
