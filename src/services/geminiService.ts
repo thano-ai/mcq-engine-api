@@ -71,6 +71,10 @@ function getApiKey(): string | null {
   return key;
 }
 
+export function getApiKeyOptional(): string | null {
+  return getApiKey();
+}
+
 function requireApiKey(): string {
   const key = getApiKey();
   if (!key) {
@@ -260,6 +264,14 @@ async function callGemini(
 
   if (lastRateLimit) throw lastRateLimit;
   throw new Error("All Gemini models are unavailable. Try again later or add Answer: lines to your questions.");
+}
+
+export async function generateWithGemini(
+  systemPrompt: string,
+  userText: string,
+  maxOutputTokens = 2048
+): Promise<string> {
+  return callGemini(systemPrompt, userText, maxOutputTokens);
 }
 
 export async function normalizeWithGemini(rawText: string): Promise<McqQuestion[]> {

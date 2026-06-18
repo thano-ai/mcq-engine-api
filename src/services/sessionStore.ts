@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { McqQuestion, QuizSession } from "../types/mcq";
+import { QuizQuestion, QuizSession } from "../types/mcq";
 
 const sessions = new Map<string, QuizSession>();
 
@@ -18,8 +18,9 @@ function purgeExpired(): void {
 }
 
 export function createSession(
-  questions: McqQuestion[],
+  questions: QuizQuestion[],
   mode: "all" | "random",
+  inputMode: "extract" | "generate",
   sampleSize?: number
 ): QuizSession {
   purgeExpired();
@@ -29,6 +30,7 @@ export function createSession(
     questions,
     mode,
     sampleSize,
+    inputMode,
     createdAt: Date.now(),
   };
 

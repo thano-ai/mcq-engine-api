@@ -1,10 +1,10 @@
-import { McqQuestion } from "../types/mcq";
+import { QuizQuestion } from "../types/mcq";
 
 export function sampleQuestions(
-  questions: McqQuestion[],
+  questions: QuizQuestion[],
   mode: "all" | "random",
   sampleSize?: number
-): McqQuestion[] {
+): QuizQuestion[] {
   if (mode === "all" || !sampleSize || sampleSize >= questions.length) {
     return [...questions];
   }
