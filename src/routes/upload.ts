@@ -68,6 +68,7 @@ router.post("/", (req: Request, res: Response, next: NextFunction) => {
         id: q.id,
         question: q.question,
         options: q.options,
+        correctAnswer: q.correct_answer,
       })),
     });
   } catch (error) {
